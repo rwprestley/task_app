@@ -193,7 +193,7 @@ if st.session_state.tasks:
                     st.rerun()
 
                 # Drop the temporary column and ID column so it doesn't render in the UI
-                active_df = active_df.drop(columns=['_Sort_Key', 'ID'])
+                edited_active = edited_active.drop(columns=['_Sort_Key', 'ID'])
 
             else:
                 st.info("No active quests. You either rolled poorly or haven't added any!")
