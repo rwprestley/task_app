@@ -162,9 +162,6 @@ if st.session_state.tasks:
                 # Sort by urgency (highest first), then by the random number (generated on creation)
                 active_df = active_df.sort_values(by=['Urgency', '_Sort_Key'], ascending=[False, True])
 
-                # Drop the temporary column and ID column so it doesn't render in the UI
-                active_df = active_df.drop(columns=['_Sort_Key', 'ID'])
-
                 # Capture the output of the data editor
                 edited_active = st.data_editor(
                     active_df,
@@ -194,6 +191,9 @@ if st.session_state.tasks:
                 if needs_rerun:
                     save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
                     st.rerun()
+
+                # Drop the temporary column and ID column so it doesn't render in the UI
+                active_df = active_df.drop(columns=['_Sort_Key', 'ID'])
 
             else:
                 st.info("No active quests. You either rolled poorly or haven't added any!")
