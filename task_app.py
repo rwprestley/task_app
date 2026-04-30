@@ -147,6 +147,32 @@ if st.session_state.tasks:
         with tab:
             current_category = CATEGORIES[i]
 
+            # Use columns to put the header and reroll button on the same line
+            col_head, col_btn = st.columns([3, 1])
+            with col_head:
+                st.write(f'### {current_category}')
+            with col_btn:
+                # Category-specific reroll button
+                if st.button('🔄 Reroll Quests', key=f'reroll_{current_category}'):
+                    for task in st.session_state.tasks:
+                        if task['Category'] == current_category:
+                            # Reset the checkmark and give a fresh sort key
+                            task['Done'] = False
+                            task['_Sort_Key'] = random.random()
+
+                            # Reroll the task against the current battery slider
+                            success, base_roll, adjusted_roll, target = roll_for_task(
+                                task['Difficulty'], task['Urgency'], battery
+                            )
+
+                            # Update the task stats
+                            task['Roll'] = adjusted_roll
+                            task['Target'] = target
+                            task['Status'] = 'Active' if success else 'Skipped'
+
+                    save_tasks(st.session_state.tasks) # Save the reroll to the cloud
+                    st.rerun() # Refresh the UI
+
             # Filter first by category
             cat_df = df[df['Category'] == current_category]
 
@@ -159,17 +185,22 @@ if st.session_state.tasks:
             active_df = cat_df[cat_df['Status'] == 'Active'].copy().reset_index(drop=True)
 
             if not active_df.empty:
-                # Sort by urgency (highest first), then by the random number (generated on creation)
-                active_df = active_df.sort_values(by=['Urgency', '_Sort_Key'], ascending=[False, True])
+                # Sort morning routine tasks randomly
+                if current_category == 'Morning Routine':
+                    active_df = active_df.sort_values(by=['_Sort_Key'], ascending=[True])
+                else:
+                    # Sort by urgency (highest first), then by the random number (generated on creation)
+                    active_df = active_df.sort_values(by=['Urgency', '_Sort_Key'], ascending=[False, True])
 
                 # Capture the output of the data editor
                 edited_active = st.data_editor(
                     active_df,
                     column_config={
-                        "Done": st.column_config.CheckboxColumn("Done?", default=False)
+                        "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small')
                     },
+                    column_order=['Done', 'Task'], #only show these columns
                     # Disable editing for everything except the "Done" checkbox
-                    disabled=['ID', 'Category', 'Task', 'Difficulty', 'Urgency', 'Target', 'Roll', 'Status'],
+                    disabled=['Task'],
                     hide_index=True,
                     key=f'active_{current_category}' # Keys must be unique!
                 )
@@ -192,9 +223,6 @@ if st.session_state.tasks:
                     save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
                     st.rerun()
 
-                # Drop the temporary column and ID column so it doesn't render in the UI
-                edited_active = edited_active.drop(columns=['_Sort_Key', 'ID'])
-
             else:
                 st.info("No active quests. You either rolled poorly or haven't added any!")
 
@@ -207,9 +235,10 @@ if st.session_state.tasks:
                 st.data_editor(
                     skipped_df,
                     column_config={
-                        'Done': st.column_config.CheckboxColumn("Done?", default=False)
+                        'Done': st.column_config.CheckboxColumn("Done?", default=False, width='small')
                     },
-                    disabled=['Category', 'Task', 'Difficulty', 'Urgency', 'Target', 'Roll', 'Status'],
+                    column_order=['Done', 'Task'],
+                    disabled=['Task'],
                     hide_index=True,
                     key=f'skipped_{current_category}'
                 )
