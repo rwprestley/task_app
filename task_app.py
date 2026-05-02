@@ -46,8 +46,17 @@ def roll_for_task(difficulty, urgency, battery_percent):
 CATEGORIES = ['Morning Routine', 'Work Tasks', 'Evening Tasks']
 
 # --- App Layout & Configuration ---
-st.set_page_config(page_title="RPG To-Do List", page_icon="🎲")
+st.set_page_config(page_title="RPG To-Do List", page_icon="🎲", layout='wide')
 st.title("🎲 RPG To-Do List")
+
+# --- Celebration Logic ---
+# This catches the flag AFTER the rerun so the animation actually plays when completing a task
+if "celebration" in st.session_state:
+    celeb = st.session_state.celebration
+    st.toast(f"🎉 **{celeb['Task']}** completed! You beat a Target DC of {celeb['Target']}.", icon="🎲")
+    st.balloons()
+    # Clear the flag so it doesn't loop infinitely
+    del st.session_state["celebration"]
 
 # 1. Initialize session state for your master task list
 if 'tasks' not in st.session_state:
@@ -120,8 +129,7 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
                 "Category": st.column_config.SelectboxColumn("Category", options=CATEGORIES),
                 "Status": st.column_config.SelectboxColumn("Status", options=["Active", "Skipped", "Completed"])
             },
-            key="master_quest_editor",
-            use_container_width=True
+            key="master_quest_editor"
         )
 
         # Check if the dataframe actually changed to avoid spamming the API
@@ -216,6 +224,10 @@ if st.session_state.tasks:
                     for task in st.session_state.tasks:
                         if task['ID'] == task_id and task['Done'] != is_done:
                             task['Done'] = is_done
+                            if is_done:
+                                task['Status'] = 'Completed'
+                                # Set the flag for toast / balloons
+                                st.session_state.celebration = {'Task': task['Task'], 'Target': task['Target']}
                             needs_rerun = True
 
                 # Force a quick rerun to immediately reflect the completed status
@@ -225,6 +237,18 @@ if st.session_state.tasks:
 
             else:
                 st.info("No active quests. You either rolled poorly or haven't added any!")
+
+            # --- COMPLETED TASKS ---
+            completed_df = cat_df[cat_df['Status'] == 'Completed'].copy().reset_index(drop=True)
+            if not completed_df.empty:
+                st.write('### 🏆 Vanquished To-Dos')
+                edited_completed = st.data_editor(
+                    completed_df,
+                    column_order=['Task', 'Target'],
+                    disabled=['Task', 'Target'],
+                    hide_index=True,
+                    key=f'completed_{current_category}'
+                )
 
             # --- SKIPPED TASKS --- #
             st.write("### ⛺ The Backlog (Skipped)")
