@@ -227,7 +227,7 @@ if st.session_state.tasks:
                             if is_done:
                                 task['Status'] = 'Completed'
                                 # Set the flag for toast / balloons
-                                st.session_state.celebration = {'Task': task['Task'], 'Target': task['Target']}
+                                st.session_state.celebration = {'Task': task['Task'], 'Target': task['Target'], 'Difficulty': task['Difficulty']}
                             needs_rerun = True
 
                 # Force a quick rerun to immediately reflect the completed status
