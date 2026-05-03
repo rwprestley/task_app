@@ -35,9 +35,9 @@ def save_tasks(tasks_list):
 # --- Core Math Logic ---
 def roll_for_task(difficulty, urgency, battery_percent):
     """Calculates the roll and target based on task stats and battery."""
-    target = round(difficulty * (1 - (urgency / 10)) * 2)
+    target = round(difficulty * (1 - (urgency / 10)) * 2, 1)
     base_roll = random.randint(1, 20)
-    adjusted_roll = math.floor(base_roll * (battery_percent / 100))
+    adjusted_roll = round(base_roll * (battery_percent / 100), 1)
     success = adjusted_roll >= target
 
     return success, base_roll, adjusted_roll, target
