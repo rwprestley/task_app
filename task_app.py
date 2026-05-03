@@ -53,7 +53,7 @@ st.title("🎲 RPG To-Do List")
 # This catches the flag AFTER the rerun so the animation actually plays when completing a task
 if "celebration" in st.session_state:
     celeb = st.session_state.celebration
-    st.toast(f"🎉 **{celeb['Task']}** completed! You beat a Target DC of {celeb['Target']}.", icon="🎲")
+    st.toast(f"🎉 **{celeb['Task']}** completed! You beat a task with difficulty of {celeb['Target']}.", icon="🎲")
     st.balloons()
     # Clear the flag so it doesn't loop infinitely
     del st.session_state["celebration"]
@@ -244,8 +244,8 @@ if st.session_state.tasks:
                 st.write('### 🏆 Vanquished To-Dos')
                 edited_completed = st.data_editor(
                     completed_df,
-                    column_order=['Task', 'Target'],
-                    disabled=['Task', 'Target'],
+                    column_order=['Task', 'Difficulty'],
+                    disabled=['Task', 'Difficulty'],
                     hide_index=True,
                     key=f'completed_{current_category}'
                 )
