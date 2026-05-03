@@ -53,7 +53,7 @@ st.title("🎲 RPG To-Do List")
 # This catches the flag AFTER the rerun so the animation actually plays when completing a task
 if "celebration" in st.session_state:
     celeb = st.session_state.celebration
-    st.toast(f"🎉 **{celeb['Task']}** completed! You beat a task with difficulty of {celeb['Target']}.", icon="🎲")
+    st.toast(f"🎉 **{celeb['Task']}** completed! You beat a task with difficulty of {celeb['Difficulty']}.", icon="🎲")
     st.balloons()
     # Clear the flag so it doesn't loop infinitely
     del st.session_state["celebration"]
