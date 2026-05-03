@@ -105,6 +105,7 @@ with st.form("new_task_form", clear_on_submit=True):
             "Urgency": urgency,
             "Target": target,
             "Roll": adjusted_roll,
+            "Base Roll": base_roll,
             "Status": status,
             "_Sort_Key": random.random() # Generated ONCE per task
         })
