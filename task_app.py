@@ -206,9 +206,9 @@ if st.session_state.tasks:
                     column_config={
                         "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small')
                     },
-                    column_order=['Done', 'Task'], #only show these columns
+                    column_order=['Done', 'Task', 'Difficulty'], #only show these columns
                     # Disable editing for everything except the "Done" checkbox
-                    disabled=['Task'],
+                    disabled=['Task', 'Difficulty'],
                     hide_index=True,
                     key=f'active_{current_category}' # Keys must be unique!
                 )
@@ -261,8 +261,8 @@ if st.session_state.tasks:
                     column_config={
                         'Done': st.column_config.CheckboxColumn("Done?", default=False, width='small')
                     },
-                    column_order=['Done', 'Task'],
-                    disabled=['Task'],
+                    column_order=['Done', 'Task', 'Difficulty'],
+                    disabled=['Task', 'Difficulty'],
                     hide_index=True,
                     key=f'skipped_{current_category}'
                 )
