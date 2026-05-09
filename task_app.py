@@ -47,6 +47,15 @@ def roll_for_task(difficulty, urgency, battery_percent):
 
     return success, base_roll, adjusted_roll, target
 
+def calculate_hit_chance(target, current_battery):
+    """Simulates all 20 sides of the die to find exact success probability."""
+    successes = 0
+    for base_roll in range(1, 21):
+        adjusted_roll = math.floor(base_roll * (current_battery / 100))
+        if adjusted_roll >= target:
+            successes += 1
+    return (successes / 20) * 100
+
 # --- Process recurring tasks ---
 def process_recurring_tasks(tasks_list):
     """Calculates dynamic urgency and visibility for recurring tasks"""
@@ -373,15 +382,26 @@ if st.session_state.tasks:
                 #     # Sort by urgency (highest first), then by the random number (generated on creation)
                 #     active_df = active_df.sort_values(by=['Urgency', '_Sort_Key'], ascending=[False, True])
 
+                # Calculate task hit % on the fly
+                active_df["Hit %"] = active_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
+
                 # Capture the output of the data editor
                 edited_active = st.data_editor(
                     active_df,
                     column_config={
-                        "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small')
+                        "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small'),
+                        "Hit %": st.column_config.ProgressColumn(
+                            "Hit Change",
+                            help="Probability of beating the Target DC at your current battery level.",
+                            format="%d%%",
+                            min_value=0,
+                            max_value=100,
+                            width='medium'
+                        )
                     },
-                    column_order=['Done', 'Task', 'Difficulty'], #only show these columns
+                    column_order=['Done', 'Task', 'Difficulty', 'Hit %'], #only show these columns
                     # Disable editing for everything except the "Done" checkbox
-                    disabled=['Task', 'Difficulty'],
+                    disabled=['Task', 'Difficulty', 'Hit %'],
                     hide_index=True,
                     key=f'active_{current_category}' # Keys must be unique!
                 )
@@ -434,10 +454,17 @@ if st.session_state.tasks:
                 st.data_editor(
                     skipped_df,
                     column_config={
-                        'Done': st.column_config.CheckboxColumn("Done?", default=False, width='small')
+                        'Done': st.column_config.CheckboxColumn("Done?", default=False, width='small'),
+                        "Hit %": st.column_config.ProgressColumn(
+                            "Hit Change",
+                            help="Probability of beating the Target DC at your current battery level.",
+                            format="%d%%",
+                            min_value=0,
+                            max_value=100,
+                            width='medium'
                     },
-                    column_order=['Done', 'Task', 'Difficulty'],
-                    disabled=['Task', 'Difficulty'],
+                    column_order=['Done', 'Task', 'Difficulty', 'Hit %'],
+                    disabled=['Task', 'Difficulty', 'Hit %'],
                     hide_index=True,
                     key=f'skipped_{current_category}'
                 )
