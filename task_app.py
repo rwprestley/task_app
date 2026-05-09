@@ -76,6 +76,7 @@ def process_recurring_tasks(tasks_list):
             else:
                 # Fallback interval logic
                 least = task['Interval_Least']
+                average = task['Interval_Average']
                 maximum = task['Interval_Max']
 
                 if days_elapsed < least:
@@ -87,10 +88,16 @@ def process_recurring_tasks(tasks_list):
                     new_status = 'Active'
                     if days_elapsed >= maximum:
                         new_urgency = 10
-                    else:
-                        # Apply linear scaling formula
-                        raw_urgency = 1 + 9 * ((days_elapsed - least) / (maximum - least))
-                        new_urgency = round(raw_urgency)
+                    elif days_elapsed < average: # Zone 1 - scale from 1 to 5
+                        if average == least:
+                            new_urgency = 5
+                        else:
+                            new_urgency = round(1 + 4 * ((days_elapsed - least) / (average - least)))
+                    else: # Zone 2 - scale from 5 to 10
+                        if maximum == average:
+                            new_urgency = 10
+                        else:
+                            new_urgency = round(5 + 5 * ((days_elapsed - average) / (maximum - average)))
 
             # Apply calculated state to the task
             if task.get('Last_Completed_Date') == today_str:
@@ -164,11 +171,14 @@ with st.form("new_task_form", clear_on_submit=True):
     day_inputs = {}
 
     if is_recurring:
-        col3, col4 = st.columns(2)
+        col3, col4, col5 = st.columns(3)
         with col3:
             interval_least = st.number_input('Least Interval (Days)', min_value=1, value=1)
         with col4:
+            interval_average = st.number_input('Average Interval (Days)', min_value=1, value=3)
+        with col5:
             interval_max = st.number_input('Max Interval (Days)', min_value=2, value=7)
+
 
         st.write('**Day of the Week Overrides**')
         st.caption('Select an urgency (0-10) to override for each day (if necessary)')
@@ -180,7 +190,7 @@ with st.form("new_task_form", clear_on_submit=True):
                 # Options are 'Auto', then 0 through 10
                 day_inputs[f'{day}_Urgency'] = st.selectbox(day, options=['Auto'] + list(range(11)), index=0)
     else:
-        interval_least, interval_max = None, None
+        interval_least, interval_average, interval_max = None, None, None
         # Provide default 'Auto' keys so NaNs are generated for one-off tasks
         for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]:
             day_inputs[f"{day}_Urgency"] = "Auto"
@@ -216,6 +226,7 @@ with st.form("new_task_form", clear_on_submit=True):
             "_Sort_Key": random.random(), # Generated ONCE per task
             "Is_Recurring": is_recurring,
             "Interval_Least": interval_least,
+            "Interval_Average": interval_average
             "Interval_Max": interval_max,
             "Last_Completed_Date": None
         }
@@ -258,7 +269,7 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
         admin_column_order = [
             "Task", "Category", "Status", "Done",
             "Difficulty", "Urgency", "Target", "Roll",
-            "Is_Recurring", "Interval_Least", "Interval_Max", "Monday_Urgency", "Tuesday_Urgency", "Wednesday_Urgency",
+            "Is_Recurring", "Interval_Least", "Interval_Average", "Interval_Max", "Monday_Urgency", "Tuesday_Urgency", "Wednesday_Urgency",
             "Thursday_Urgency", "Friday_Urgency", "Saturday_Urgency", "Sunday_Urgency", "Last_Completed_Date"
         ]
 
