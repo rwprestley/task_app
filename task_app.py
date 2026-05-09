@@ -69,7 +69,7 @@ def process_recurring_tasks(tasks_list):
             # Check today's override settings
             override = task.get(f'{today_name}_Urgency', 'Auto')
 
-            if override != 'Auto':
+            if override not in ['Auto', None]:
                 # Hard-coded override logic
                 new_urgency = int(override)
                 new_status = 'Dormant' if new_urgency == 0 else 'Active'
