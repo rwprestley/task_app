@@ -462,6 +462,7 @@ if st.session_state.tasks:
                             min_value=0,
                             max_value=100,
                             width='medium'
+                        )
                     },
                     column_order=['Done', 'Task', 'Difficulty', 'Hit %'],
                     disabled=['Task', 'Difficulty', 'Hit %'],
