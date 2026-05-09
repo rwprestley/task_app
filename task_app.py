@@ -226,7 +226,7 @@ with st.form("new_task_form", clear_on_submit=True):
             "_Sort_Key": random.random(), # Generated ONCE per task
             "Is_Recurring": is_recurring,
             "Interval_Least": interval_least,
-            "Interval_Average": interval_average
+            "Interval_Average": interval_average,
             "Interval_Max": interval_max,
             "Last_Completed_Date": None
         }
