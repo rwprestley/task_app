@@ -451,6 +451,9 @@ if st.session_state.tasks:
             skipped_df = skipped_df.sort_values(by=['Urgency', 'Difficulty'], ascending=[False, True])
 
             if not skipped_df.empty:
+                # Calculate task hit % on the fly
+                active_df["Hit %"] = active_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
+
                 st.data_editor(
                     skipped_df,
                     column_config={
