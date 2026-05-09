@@ -452,7 +452,7 @@ if st.session_state.tasks:
 
             if not skipped_df.empty:
                 # Calculate task hit % on the fly
-                active_df["Hit %"] = active_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
+                skipped_df["Hit %"] = skipped_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
 
                 st.data_editor(
                     skipped_df,
