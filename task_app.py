@@ -136,7 +136,7 @@ def process_recurring_tasks(tasks_list):
     return modified
 
 # --- Define categories ---
-CATEGORIES = ['Morning Routine', 'Work Tasks', 'Evening Tasks']
+CATEGORIES = ['Morning Routine', 'High Priority', 'Medium Priority']
 
 # --- App Layout & Configuration ---
 st.set_page_config(page_title="RPG To-Do List", page_icon="🎲", layout='wide')
@@ -391,7 +391,7 @@ if st.session_state.tasks:
                     column_config={
                         "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small'),
                         "Hit %": st.column_config.ProgressColumn(
-                            "Hit Change",
+                            "Hit Chance",
                             help="Probability of beating the Target DC at your current battery level.",
                             format="%d%%",
                             min_value=0,
@@ -459,7 +459,7 @@ if st.session_state.tasks:
                     column_config={
                         'Done': st.column_config.CheckboxColumn("Done?", default=False, width='small'),
                         "Hit %": st.column_config.ProgressColumn(
-                            "Hit Change",
+                            "Hit Chance",
                             help="Probability of beating the Target DC at your current battery level.",
                             format="%d%%",
                             min_value=0,
