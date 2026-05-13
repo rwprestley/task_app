@@ -345,7 +345,7 @@ if st.session_state.tasks:
                     process_recurring_tasks(st.session_state.tasks)
 
                     for task in st.session_state.tasks:
-                        if task['Category'] == current_category and task['Status'] != 'Dormant':
+                        if task['Category'] == current_category and task['Status'] in ['Active', 'Skipped']:
                             # Reset the checkmark and give a fresh sort key
                             task['Done'] = False
                             task['_Sort_Key'] = random.random()
@@ -421,8 +421,7 @@ if st.session_state.tasks:
                                 task['Status'] = 'Completed'
                                 # Set the flag for toast / balloons
                                 st.session_state.celebration = {'Task': task['Task'], 'Target': task['Target'], 'Difficulty': task['Difficulty']}
-                                if task.get('Is_Recurring'):
-                                    task['Last_Completed_Date'] = date.today().strftime('%Y-%m-%d')
+                                task['Last_Completed_Date'] = date.today().strftime('%Y-%m-%d')
                             needs_rerun = True
 
                 # Force a quick rerun to immediately reflect the completed status
@@ -439,11 +438,31 @@ if st.session_state.tasks:
                 st.write('### 🏆 Vanquished To-Dos')
                 edited_completed = st.data_editor(
                     completed_df,
-                    column_order=['Task', 'Difficulty'],
-                    disabled=['Task', 'Difficulty'],
+                    column_order=['Task', 'Difficulty', 'Last_Completed_Date'],
+                    disabled=['Task', 'Difficulty', 'Last_Completed_Date'],
                     hide_index=True,
                     key=f'completed_{current_category}'
                 )
+
+                needs_rerun = False
+                for _, row in edited_completed.iterrows():
+                    task_id = row["ID"]
+                    is_done = row["Done"]
+                    for task in st.session_state.tasks:
+                        if task["ID"] == task_id and task["Done"] != is_done:
+                            task["Done"] = is_done
+                            if not is_done:
+                                task["Status"] = "Active"
+
+                                # THE FIX: Wipe the date stamp if unchecked
+                                task["Last_Completed_Date"] = None
+
+                            needs_rerun = True
+
+                # Force a quick rerun to immediately reflect the completed status
+                if needs_rerun:
+                    save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
+                    st.rerun()
 
             # --- SKIPPED TASKS --- #
             st.write("### ⛺ The Backlog (Skipped)")
@@ -454,7 +473,7 @@ if st.session_state.tasks:
                 # Calculate task hit % on the fly
                 skipped_df["Hit %"] = skipped_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
 
-                st.data_editor(
+                edited_skipped = st.data_editor(
                     skipped_df,
                     column_config={
                         'Done': st.column_config.CheckboxColumn("Done?", default=False, width='small'),
@@ -472,6 +491,25 @@ if st.session_state.tasks:
                     hide_index=True,
                     key=f'skipped_{current_category}'
                 )
+
+                needs_rerun = False
+                for _, row in edited_skipped.iterrows():  # (And edited_skipped.iterrows())
+                    task_id = row["ID"]
+                    is_done = row["Done"]
+                    for task in st.session_state.tasks:
+                        if task["ID"] == task_id and task["Done"] != is_done:
+                            task["Done"] = is_done
+                            if is_done:
+                                task["Status"] = "Completed"
+                                st.session_state.celebration = {"Task": task["Task"], "Target": task["Target"]}
+                                task["Last_Completed_Date"] = date.today().strftime("%Y-%m-%d")
+
+                            needs_rerun = True
+
+                # Force a quick rerun to immediately reflect the completed status
+                if needs_rerun:
+                    save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
+                    st.rerun()
             else:
                 st.info("Your backlog is clear.")
 else:
