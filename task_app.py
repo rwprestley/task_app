@@ -4,7 +4,8 @@ import random
 import math
 import uuid
 import requests
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 import math
 
 # --- Cloud Database Setup ---
@@ -15,6 +16,7 @@ HEADERS = {
     "X-Master-Key": API_KEY,
     "Content-Type": "application/json"
 }
+timezone = ZoneInfo('US/Mountain')
 
 def load_tasks():
     """Fetches your task list from the cloud."""
@@ -59,9 +61,10 @@ def calculate_hit_chance(target, current_battery):
 # --- Process recurring tasks ---
 def process_recurring_tasks(tasks_list):
     """Calculates dynamic urgency and visibility for recurring tasks"""
-    today = date.today()
-    today_name = today.strftime('%A')
-    today_str = today.strftime('%Y-%m-%d')
+    now = datetime.now(timezone)
+    today = now.date()
+    today_name = now.strftime('%A')
+    today_str = now.strftime('%Y-%m-%d')
     modified = False
 
     for task in tasks_list:
@@ -326,122 +329,162 @@ if st.session_state.tasks:
 
     st.write("---")
 
-    # Generate category tabs dynamically based on CATEGORIES list
-    tabs = st.tabs(CATEGORIES)
+    # Category selector - remembers selection across reruns
+    current_category = st.radio(
+        "Select Category",
+        options=CATEGORIES,
+        horizontal=True,
+        label_visibility='collapsed', # hides title so it looks like clean tab bar
+        key='active_tab_memory' # magic key to remember spot
+    )
 
-    # Loop through each tab and populate it with filtered data
-    for i, tab in enumerate(tabs):
-        with tab:
-            current_category = CATEGORIES[i]
+    # Use columns to put the header and reroll button on the same line
+    col_head, col_btn = st.columns([3, 1])
+    with col_head:
+        st.write(f'### {current_category}')
+    with col_btn:
+        # Category-specific reroll button
+        if st.button('🔄 Reroll Quests', key=f'reroll_{current_category}'):
+            # Update dynamic urgencies BEFORE rerolling
+            process_recurring_tasks(st.session_state.tasks)
 
-            # Use columns to put the header and reroll button on the same line
-            col_head, col_btn = st.columns([3, 1])
-            with col_head:
-                st.write(f'### {current_category}')
-            with col_btn:
-                # Category-specific reroll button
-                if st.button('🔄 Reroll Quests', key=f'reroll_{current_category}'):
-                    # Update dynamic urgencies BEFORE rerolling
-                    process_recurring_tasks(st.session_state.tasks)
+            for task in st.session_state.tasks:
+                if task['Category'] == current_category and task['Status'] in ['Active', 'Skipped']:
+                    # Reset the checkmark and give a fresh sort key
+                    task['Done'] = False
+                    task['_Sort_Key'] = random.random()
 
-                    for task in st.session_state.tasks:
-                        if task['Category'] == current_category and task['Status'] in ['Active', 'Skipped']:
-                            # Reset the checkmark and give a fresh sort key
-                            task['Done'] = False
-                            task['_Sort_Key'] = random.random()
+                    # Reroll the task against the current battery slider
+                    success, base_roll, adjusted_roll, target = roll_for_task(
+                        task['Difficulty'], task['Urgency'], battery
+                    )
 
-                            # Reroll the task against the current battery slider
-                            success, base_roll, adjusted_roll, target = roll_for_task(
-                                task['Difficulty'], task['Urgency'], battery
-                            )
+                    # Update the task stats
+                    task['Roll'] = adjusted_roll
+                    task['Target'] = target
+                    task['Status'] = 'Active' if success else 'Skipped'
 
-                            # Update the task stats
-                            task['Roll'] = adjusted_roll
-                            task['Target'] = target
-                            task['Status'] = 'Active' if success else 'Skipped'
+            save_tasks(st.session_state.tasks) # Save the reroll to the cloud
+            st.rerun() # Refresh the UI
 
-                    save_tasks(st.session_state.tasks) # Save the reroll to the cloud
-                    st.rerun() # Refresh the UI
+    # Filter first by category
+    cat_df = df[df['Category'] == current_category]
 
-            # Filter first by category
-            cat_df = df[df['Category'] == current_category]
+    if cat_df.empty:
+        st.info(f"No quests in {current_category} yet.")
 
-            if cat_df.empty:
-                st.info(f"No quests in {current_category} yet.")
-                continue # Skip the rest of the loop and move to the next tab
+    else: # Skip the rest of the loop and move to the next tab
+        # --- ACTIVE TASKS --- #
+        st.write("### ⚔️ Today's Quest Board")
+        active_df = cat_df[cat_df['Status'] == 'Active'].copy().reset_index(drop=True)
 
-            # --- ACTIVE TASKS --- #
-            st.write("### ⚔️ Today's Quest Board")
-            active_df = cat_df[cat_df['Status'] == 'Active'].copy().reset_index(drop=True)
+        if not active_df.empty:
+            # Sort morning routine tasks randomly
+            # if current_category == 'Morning Routine':
+            active_df = active_df.sort_values(by=['_Sort_Key'], ascending=[True])
+            # else:
+            #     # Sort by urgency (highest first), then by the random number (generated on creation)
+            #     active_df = active_df.sort_values(by=['Urgency', '_Sort_Key'], ascending=[False, True])
 
-            if not active_df.empty:
-                # Sort morning routine tasks randomly
-                # if current_category == 'Morning Routine':
-                active_df = active_df.sort_values(by=['_Sort_Key'], ascending=[True])
-                # else:
-                #     # Sort by urgency (highest first), then by the random number (generated on creation)
-                #     active_df = active_df.sort_values(by=['Urgency', '_Sort_Key'], ascending=[False, True])
+            # Calculate task hit % on the fly
+            active_df["Hit %"] = active_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
 
-                # Calculate task hit % on the fly
-                active_df["Hit %"] = active_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
+            # Capture the output of the data editor
+            edited_active = st.data_editor(
+                active_df,
+                column_config={
+                    "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small'),
+                    "Hit %": st.column_config.ProgressColumn(
+                        "Hit Chance",
+                        help="Probability of beating the Target DC at your current battery level.",
+                        format="%d%%",
+                        min_value=0,
+                        max_value=100,
+                        width='medium'
+                    )
+                },
+                column_order=['Done', 'Task', 'Difficulty', 'Hit %'], #only show these columns
+                # Disable editing for everything except the "Done" checkbox
+                disabled=['Task', 'Difficulty', 'Hit %'],
+                hide_index=True,
+                key=f'active_{current_category}' # Keys must be unique!
+            )
 
-                # Capture the output of the data editor
-                edited_active = st.data_editor(
-                    active_df,
-                    column_config={
-                        "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small'),
-                        "Hit %": st.column_config.ProgressColumn(
-                            "Hit Chance",
-                            help="Probability of beating the Target DC at your current battery level.",
-                            format="%d%%",
-                            min_value=0,
-                            max_value=100,
-                            width='medium'
-                        )
-                    },
-                    column_order=['Done', 'Task', 'Difficulty', 'Hit %'], #only show these columns
-                    # Disable editing for everything except the "Done" checkbox
-                    disabled=['Task', 'Difficulty', 'Hit %'],
-                    hide_index=True,
-                    key=f'active_{current_category}' # Keys must be unique!
-                )
+            # Check for differences in the "Done" column
+            needs_rerun = False
 
-                # Check for differences in the "Done" column
-                needs_rerun = False
+            for _, row in edited_active.iterrows():
+                task_id = row['ID']
+                is_done = row['Done']
 
-                for _, row in edited_active.iterrows():
-                    task_id = row['ID']
-                    is_done = row['Done']
+                # Find the specific task in session state and update it
+                for task in st.session_state.tasks:
+                    if task['ID'] == task_id and task['Done'] != is_done:
+                        task['Done'] = is_done
+                        if is_done:
+                            task['Status'] = 'Completed'
+                            # Set the flag for toast / balloons
+                            st.session_state.celebration = {'Task': task['Task'], 'Target': task['Target'], 'Difficulty': task['Difficulty']}
+                            task['Last_Completed_Date'] = datetime.now(timezone).strftime('%Y-%m-%d')
+                        needs_rerun = True
 
-                    # Find the specific task in session state and update it
-                    for task in st.session_state.tasks:
-                        if task['ID'] == task_id and task['Done'] != is_done:
-                            task['Done'] = is_done
-                            if is_done:
-                                task['Status'] = 'Completed'
-                                # Set the flag for toast / balloons
-                                st.session_state.celebration = {'Task': task['Task'], 'Target': task['Target'], 'Difficulty': task['Difficulty']}
-                                task['Last_Completed_Date'] = date.today().strftime('%Y-%m-%d')
-                            needs_rerun = True
+            # Force a quick rerun to immediately reflect the completed status
+            if needs_rerun:
+                save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
+                st.rerun()
 
-                # Force a quick rerun to immediately reflect the completed status
-                if needs_rerun:
-                    save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
-                    st.rerun()
+        else:
+            st.info("🎉 Congratulations, all tasks have been cleared! 🎉")
 
-            else:
-                st.info("No active quests. You either rolled poorly or haven't added any!")
+        # --- COMPLETED TASKS ---
+        completed_df = cat_df[cat_df['Status'] == 'Completed'].copy().reset_index(drop=True)
+        if not completed_df.empty:
+            st.write('### 🏆 Vanquished To-Dos')
 
-            # --- COMPLETED TASKS ---
-            completed_df = cat_df[cat_df['Status'] == 'Completed'].copy().reset_index(drop=True)
-            if not completed_df.empty:
-                st.write('### 🏆 Vanquished To-Dos')
+            # Convert string dates into real datetime objects to calculate deltas
+            completed_df['Date_Obj'] = pd.to_datetime(completed_df['Last_Completed_Date']).dt.date
+            today_date = datetime.now(timezone).date()
+
+            # Helper function to categorize age of completed task
+            def categorize_date(task_date):
+                if pd.isna(task_date):
+                    return "Older / Unknown"
+
+                delta = (today_date - task_date).days
+                if delta == 0:
+                    return "Today"
+                elif delta == 1:
+                    return "Yesterday"
+                elif delta <= 7:
+                    return "Last 7 days"
+                elif delta <= 30:
+                    return "Last 30 days"
+                else:
+                    return "Older / Unknown"
+
+            # Apply helper function to categorize tasks
+            completed_df['Time_Bucket'] = completed_df['Date_Obj'].apply(categorize_date)
+
+            # Create sub-navigation menu (using radio to preserve state)
+            time_filter = st.radio(
+                "Filter History",
+                options=["Today", "Yesterday", "Last 7 days", "Last 30 days", "Older / Unknown"],
+                horizontal=True,
+                label_visibility="collapsed",
+                key=f'history_filter_{current_category}'
+            )
+
+            # Filter dataframe based on selected sub-tab and sort by date
+            filtered_completed_df = completed_df[completed_df['Time_Bucket'] == time_filter].reset_index(drop=True)
+            filtered_completed_df = filtered_completed_df.sort_values(by=['Last_Completed_Date'], ascending=[False]).reset_index(drop=True)
+
+            if not filtered_completed_df.empty:
                 edited_completed = st.data_editor(
-                    completed_df,
+                    filtered_completed_df,
                     column_order=['Task', 'Difficulty', 'Last_Completed_Date'],
                     disabled=['Task', 'Difficulty', 'Last_Completed_Date'],
                     hide_index=True,
-                    key=f'completed_{current_category}'
+                    key=f'completed_{current_category}_{time_filter}'
                 )
 
                 needs_rerun = False
@@ -453,57 +496,7 @@ if st.session_state.tasks:
                             task["Done"] = is_done
                             if not is_done:
                                 task["Status"] = "Active"
-
-                                # THE FIX: Wipe the date stamp if unchecked
                                 task["Last_Completed_Date"] = None
-
-                            needs_rerun = True
-
-                # Force a quick rerun to immediately reflect the completed status
-                if needs_rerun:
-                    save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
-                    st.rerun()
-
-            # --- SKIPPED TASKS --- #
-            st.write("### ⛺ The Backlog (Skipped)")
-            skipped_df = cat_df[cat_df['Status'] == 'Skipped']
-            skipped_df = skipped_df.sort_values(by=['Urgency', 'Difficulty'], ascending=[False, True])
-
-            if not skipped_df.empty:
-                # Calculate task hit % on the fly
-                skipped_df["Hit %"] = skipped_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
-
-                edited_skipped = st.data_editor(
-                    skipped_df,
-                    column_config={
-                        'Done': st.column_config.CheckboxColumn("Done?", default=False, width='small'),
-                        "Hit %": st.column_config.ProgressColumn(
-                            "Hit Chance",
-                            help="Probability of beating the Target DC at your current battery level.",
-                            format="%d%%",
-                            min_value=0,
-                            max_value=100,
-                            width='medium'
-                        )
-                    },
-                    column_order=['Done', 'Task', 'Difficulty', 'Hit %'],
-                    disabled=['Task', 'Difficulty', 'Hit %'],
-                    hide_index=True,
-                    key=f'skipped_{current_category}'
-                )
-
-                needs_rerun = False
-                for _, row in edited_skipped.iterrows():  # (And edited_skipped.iterrows())
-                    task_id = row["ID"]
-                    is_done = row["Done"]
-                    for task in st.session_state.tasks:
-                        if task["ID"] == task_id and task["Done"] != is_done:
-                            task["Done"] = is_done
-                            if is_done:
-                                task["Status"] = "Completed"
-                                st.session_state.celebration = {"Task": task["Task"], "Target": task["Target"]}
-                                task["Last_Completed_Date"] = date.today().strftime("%Y-%m-%d")
-
                             needs_rerun = True
 
                 # Force a quick rerun to immediately reflect the completed status
@@ -511,7 +504,57 @@ if st.session_state.tasks:
                     save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
                     st.rerun()
             else:
-                st.info("Your backlog is clear.")
+                st.info(f'No tasks completed in this timeframe ({time_filter}).')
+
+        # --- SKIPPED TASKS --- #
+        st.write("### ⛺ The Backlog (Skipped)")
+        skipped_df = cat_df[cat_df['Status'] == 'Skipped']
+        skipped_df = skipped_df.sort_values(by=['Urgency', 'Difficulty'], ascending=[False, True])
+
+        if not skipped_df.empty:
+            # Calculate task hit % on the fly
+            skipped_df["Hit %"] = skipped_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
+
+            edited_skipped = st.data_editor(
+                skipped_df,
+                column_config={
+                    'Done': st.column_config.CheckboxColumn("Done?", default=False, width='small'),
+                    "Hit %": st.column_config.ProgressColumn(
+                        "Hit Chance",
+                        help="Probability of beating the Target DC at your current battery level.",
+                        format="%d%%",
+                        min_value=0,
+                        max_value=100,
+                        width='medium'
+                    )
+                },
+                column_order=['Done', 'Task', 'Difficulty', 'Hit %'],
+                disabled=['Task', 'Difficulty', 'Hit %'],
+                hide_index=True,
+                key=f'skipped_{current_category}'
+            )
+
+            needs_rerun = False
+            for _, row in edited_skipped.iterrows():  # (And edited_skipped.iterrows())
+                task_id = row["ID"]
+                is_done = row["Done"]
+                for task in st.session_state.tasks:
+                    if task["ID"] == task_id and task["Done"] != is_done:
+                        task["Done"] = is_done
+                        if is_done:
+                            task["Status"] = "Completed"
+                            st.session_state.celebration = {"Task": task["Task"], "Target": task["Target"],
+                                                            "Difficulty": task['Difficulty']}
+                            task["Last_Completed_Date"] = datetime.now(timezone).strftime("%Y-%m-%d")
+
+                        needs_rerun = True
+
+            # Force a quick rerun to immediately reflect the completed status
+            if needs_rerun:
+                save_tasks(st.session_state.tasks)  # SAVE TO CLOUD
+                st.rerun()
+        else:
+            st.info("Your backlog is clear.")
 else:
     st.write("---")
     st.info("Fill out the form above to start building your Quest Board!")
