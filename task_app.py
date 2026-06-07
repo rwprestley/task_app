@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import random
-import math
 import uuid
 import requests
 from datetime import date, datetime, timedelta
