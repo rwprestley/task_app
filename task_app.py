@@ -159,7 +159,8 @@ if "celebration" in st.session_state:
     # Clear the flag so it doesn't loop infinitely
     del st.session_state["celebration"]
 
-# 2. Daily Battery Input
+# 2. Daily Battery Input and Weekend Mode Toggle
+weekend_mode = st.toggle("🌴 Weekend Mode")
 battery = st.slider("Today's Battery (%)", 1, 100, 100)
 
 # 3. Task Input Form
@@ -172,6 +173,9 @@ with st.form("new_task_form", clear_on_submit=True):
 
     # Add category selection
     category = st.selectbox("Category", CATEGORIES)
+
+    # Add Work flag checkbox
+    is_work = st.checkbox("Is this a work task?",  help='Work tasks are automatically hidden in Weekend Mode.')
 
     col1, col2 = st.columns(2)
     with col1:
@@ -239,7 +243,8 @@ with st.form("new_task_form", clear_on_submit=True):
             "Interval_Least": interval_least,
             "Interval_Average": interval_average,
             "Interval_Max": interval_max,
-            "Last_Completed_Date": None
+            "Last_Completed_Date": None,
+            "Is_Work": is_work
         }
 
         # Inject Monday-Sunday overrides into dictionary
@@ -278,7 +283,7 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
         # Define the exact order of columns left-to-right.
         # (Anything NOT in this list, like 'ID' or '_Sort_Key', will be automatically hidden!)
         admin_column_order = [
-            "Task", "Category", "Status", "Done", "Partial_Done",
+            "Task", "Category", "Is_Work", "Status", "Done", "Partial_Done",
             "Difficulty", "Urgency", "Target", "Roll",
             "Is_Recurring", "Interval_Least", "Interval_Average", "Interval_Max", "Monday_Urgency", "Tuesday_Urgency", "Wednesday_Urgency",
             "Thursday_Urgency", "Friday_Urgency", "Saturday_Urgency", "Sunday_Urgency", "Last_Completed_Date"
@@ -328,50 +333,75 @@ if st.session_state.tasks:
 
     st.write("---")
 
-    # Category selector - remembers selection across reruns
-    current_category = st.radio(
-        "Select Category",
-        options=CATEGORIES,
-        horizontal=True,
-        label_visibility='collapsed', # hides title so it looks like clean tab bar
-        key='active_tab_memory' # magic key to remember spot
-    )
+    if weekend_mode:
+        st.write('### 🌴 Weekend Mode (All Quests)')
+        current_category = 'Weekend'
 
-    # Use columns to put the header and reroll button on the same line
-    col_head, col_btn = st.columns([3, 1])
-    with col_head:
-        st.write(f'### {current_category}')
-    with col_btn:
-        # Category-specific reroll button
-        if st.button('🔄 Reroll Quests', key=f'reroll_{current_category}'):
-            # Update dynamic urgencies BEFORE rerolling
+        # Global reroll button
+        if st.button('🔄 Reroll ALL Quests', key='reroll_all'):
             process_recurring_tasks(st.session_state.tasks)
-
             for task in st.session_state.tasks:
-                if task['Category'] == current_category and task['Status'] in ['Active', 'Skipped', 'Partial']:
-                    # Reset the checkmark and give a fresh sort key
+                if task['Status'] in ['Active', 'Skipped', 'Partial']:
                     task['Done'] = False
-                    task['Partial_Done'] = False # reset the "partial" flag for a new roll
+                    task['Partial_Done'] = False
                     task['_Sort_Key'] = random.random()
-
-                    # Reroll the task against the current battery slider
                     success, base_roll, adjusted_roll, target = roll_for_task(
                         task['Difficulty'], task['Urgency'], battery
                     )
-
-                    # Update the task stats
                     task['Roll'] = adjusted_roll
                     task['Target'] = target
                     task['Status'] = 'Active' if success else 'Skipped'
+            save_tasks(st.session_state.tasks)
+            st.rerun()
 
-            save_tasks(st.session_state.tasks) # Save the reroll to the cloud
-            st.rerun() # Refresh the UI
+        # Skip category filtering and use the whole dataframe
+        cat_df = df[df['Is_Work'] == False]
 
-    # Filter first by category
-    cat_df = df[df['Category'] == current_category]
+    else: # Normal mode
+        # Category selector - remembers selection across reruns
+        current_category = st.radio(
+            "Select Category",
+            options=CATEGORIES,
+            horizontal=True,
+            label_visibility='collapsed', # hides title so it looks like clean tab bar
+            key='active_tab_memory' # magic key to remember spot
+        )
+
+        # Use columns to put the header and reroll button on the same line
+        col_head, col_btn = st.columns([3, 1])
+        with col_head:
+            st.write(f'### {current_category}')
+        with col_btn:
+            # Category-specific reroll button
+            if st.button('🔄 Reroll Quests', key=f'reroll_{current_category}'):
+                # Update dynamic urgencies BEFORE rerolling
+                process_recurring_tasks(st.session_state.tasks)
+
+                for task in st.session_state.tasks:
+                    if task['Category'] == current_category and task['Status'] in ['Active', 'Skipped', 'Partial']:
+                        # Reset the checkmark and give a fresh sort key
+                        task['Done'] = False
+                        task['Partial_Done'] = False # reset the "partial" flag for a new roll
+                        task['_Sort_Key'] = random.random()
+
+                        # Reroll the task against the current battery slider
+                        success, base_roll, adjusted_roll, target = roll_for_task(
+                            task['Difficulty'], task['Urgency'], battery
+                        )
+
+                        # Update the task stats
+                        task['Roll'] = adjusted_roll
+                        task['Target'] = target
+                        task['Status'] = 'Active' if success else 'Skipped'
+
+                save_tasks(st.session_state.tasks) # Save the reroll to the cloud
+                st.rerun() # Refresh the UI
+
+        # Filter first by category
+        cat_df = df[df['Category'] == current_category]
 
     if cat_df.empty:
-        st.info(f"No quests in {current_category} yet.")
+        st.info(f"No quests in to display yet.")
 
     else: # Skip the rest of the loop and move to the next tab
         # --- ACTIVE TASKS --- #
@@ -412,7 +442,7 @@ if st.session_state.tasks:
                 # Disable editing for everything except the "Done" checkbox
                 disabled=['Task', 'Difficulty', 'Hit %'],
                 hide_index=True,
-                key=f'active_{current_category}' # Keys must be unique!
+                key=f'active_{"weekend" if weekend_mode else current_category}' # Keys must be unique!
             )
 
             # Check for differences in the "Done" column
