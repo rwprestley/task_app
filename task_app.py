@@ -278,7 +278,7 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
         # Define the exact order of columns left-to-right.
         # (Anything NOT in this list, like 'ID' or '_Sort_Key', will be automatically hidden!)
         admin_column_order = [
-            "Task", "Category", "Status", "Done",
+            "Task", "Category", "Status", "Done", "Partial_Done",
             "Difficulty", "Urgency", "Target", "Roll",
             "Is_Recurring", "Interval_Least", "Interval_Average", "Interval_Max", "Monday_Urgency", "Tuesday_Urgency", "Wednesday_Urgency",
             "Thursday_Urgency", "Friday_Urgency", "Saturday_Urgency", "Sunday_Urgency", "Last_Completed_Date"
@@ -348,9 +348,10 @@ if st.session_state.tasks:
             process_recurring_tasks(st.session_state.tasks)
 
             for task in st.session_state.tasks:
-                if task['Category'] == current_category and task['Status'] in ['Active', 'Skipped']:
+                if task['Category'] == current_category and task['Status'] in ['Active', 'Skipped', 'Partial']:
                     # Reset the checkmark and give a fresh sort key
                     task['Done'] = False
+                    task['Partial_Done'] = False # reset the "partial" flag for a new roll
                     task['_Sort_Key'] = random.random()
 
                     # Reroll the task against the current battery slider
@@ -388,11 +389,16 @@ if st.session_state.tasks:
             # Calculate task hit % on the fly
             active_df["Hit %"] = active_df["Target"].apply(lambda t: calculate_hit_chance(t, battery))
 
+            # Safety check to handle older tasks
+            if 'Partial_Done' not in active_df.columns:
+                active_df['Partial_Done'] = False
+
             # Capture the output of the data editor
             edited_active = st.data_editor(
                 active_df,
                 column_config={
                     "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small'),
+                    "Partial_Done": st.column_config.CheckboxColumn("Done for today?", default=False, width='small'),
                     "Hit %": st.column_config.ProgressColumn(
                         "Hit Chance",
                         help="Probability of beating the Target DC at your current battery level.",
@@ -402,7 +408,7 @@ if st.session_state.tasks:
                         width='medium'
                     )
                 },
-                column_order=['Done', 'Task', 'Difficulty', 'Hit %'], #only show these columns
+                column_order=['Done', 'Partial_Done', 'Task', 'Difficulty', 'Hit %'], #only show these columns
                 # Disable editing for everything except the "Done" checkbox
                 disabled=['Task', 'Difficulty', 'Hit %'],
                 hide_index=True,
@@ -415,17 +421,23 @@ if st.session_state.tasks:
             for _, row in edited_active.iterrows():
                 task_id = row['ID']
                 is_done = row['Done']
+                is_partial = row.get('Partial_Done', False)
 
                 # Find the specific task in session state and update it
                 for task in st.session_state.tasks:
-                    if task['ID'] == task_id and task['Done'] != is_done:
-                        task['Done'] = is_done
-                        if is_done:
+                    if task['ID'] == task_id:
+                        if is_done and not task.get('Done'): # fully completed overrides everything
+                            task['Done'] = True
+                            task['Partial_Done'] = False
                             task['Status'] = 'Completed'
                             # Set the flag for toast / balloons
                             st.session_state.celebration = {'Task': task['Task'], 'Target': task['Target'], 'Difficulty': task['Difficulty']}
                             task['Last_Completed_Date'] = datetime.now(timezone).strftime('%Y-%m-%d')
-                        needs_rerun = True
+                            needs_rerun = True
+                        elif is_partial and not task.get('Partial_Done'):
+                            task['Partial_Done'] = True
+                            task['Status'] = 'Partial'
+                            needs_rerun = True
 
             # Force a quick rerun to immediately reflect the completed status
             if needs_rerun:
@@ -434,6 +446,50 @@ if st.session_state.tasks:
 
         else:
             st.info("🎉 Congratulations, all tasks have been cleared! 🎉")
+
+        # --- PARTIAL TASKS (Done for today) --- #
+        partial_df = cat_df[cat_df['Status'] == 'Partial'].copy().reset_index(drop=True)
+
+        if not partial_df.empty:
+            st.write('### ⛺ Resting (Done for Today)')
+
+            edited_partial = st.data_editor(
+                partial_df,
+                column_config={
+                    "Done": st.column_config.CheckboxColumn("Fully Done?", default=False, width='small'),
+                    "Partial_Done": st.column_config.CheckboxColumn("Done for today?", default=False, width='small'),
+                },
+                column_order=['Done', 'Partial_Done', 'Task', 'Difficulty'],
+                disabled=['Task', 'Difficulty'],
+                hide_index=True,
+                key=f'partial_{current_category}'
+            )
+
+            needs_rerun = False
+            for _, row in edited_partial.iterrows():
+                task_id = row['ID']
+                is_done = row['Done']
+                is_partial = row['Partial_Done']
+
+                for task in st.session_state.tasks:
+                    if task['ID'] == task_id:
+                        if is_done: # If task is fully finished from resting state
+                            task['Done'] = True
+                            task['Partial_Done'] = False
+                            task['Status'] = 'Completed'
+                            st.session_state.celebration = {'Task': task['Task'],
+                                                            'Target': task['Target'],
+                                                            'Difficulty': task['Difficulty']},
+                            task['Last_Completed_Date'] = datetime.now(timezone).strftime('%Y-%m-%d')
+                            needs_rerun = True
+                        elif not is_partial: # If accidentally clicked and need to send back
+                            task['Partial_Done'] = False
+                            task['Status'] = 'Active'
+                            needs_rerun = True
+
+            if needs_rerun:
+                save_tasks(st.session_state.tasks)
+                st.rerun()
 
         # --- COMPLETED TASKS ---
         completed_df = cat_df[cat_df['Status'] == 'Completed'].copy().reset_index(drop=True)
