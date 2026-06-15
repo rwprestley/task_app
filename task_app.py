@@ -86,9 +86,12 @@ def process_recurring_tasks(tasks_list):
                 new_status = 'Dormant' if new_urgency == 0 else 'Active'
             else:
                 # Fallback interval logic
-                least = task['Interval_Least']
-                average = task['Interval_Average']
-                maximum = task['Interval_Max']
+                least = task.get('Interval_Least')
+                least = int(least) if least is not None else 0
+                average = task.get('Interval_Average')
+                average = int(average) if average is not None else 1
+                maximum = task.get('Interval_Max')
+                maximum = int(maximum) if maximum is not None else 1
 
                 if days_elapsed < least:
                     # Task is dormant, hide it from active board
