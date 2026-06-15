@@ -509,7 +509,7 @@ if st.session_state.tasks:
                             task['Status'] = 'Completed'
                             st.session_state.celebration = {'Task': task['Task'],
                                                             'Target': task['Target'],
-                                                            'Difficulty': task['Difficulty']},
+                                                            'Difficulty': task['Difficulty']}
                             task['Last_Completed_Date'] = datetime.now(timezone).strftime('%Y-%m-%d')
                             needs_rerun = True
                         elif not is_partial: # If accidentally clicked and need to send back
