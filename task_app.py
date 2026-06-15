@@ -153,6 +153,9 @@ if 'tasks' not in st.session_state:
     if process_recurring_tasks(st.session_state.tasks):
         save_tasks(st.session_state.tasks)
 
+if 'active_tab_memory' not in st.session_state:
+    st.session_state.active_tab_memory = CATEGORIES[0]
+
 # --- Celebration Logic ---
 # This catches the flag AFTER the rerun so the animation actually plays when completing a task
 if "celebration" in st.session_state:
