@@ -140,6 +140,65 @@ def process_recurring_tasks(tasks_list):
 
     return modified
 
+# --- Process one-off tasks ---
+def process_deadline_tasks(tasks_list):
+    """Calculated dynamic urgency for one-off tasks approaching their due date"""
+    today = datetime.now(timezone).date()
+    modified = False
+
+    for task in tasks_list:
+        # Skip recurring tasks or tasks without due dates
+        if task.get('Is_Recurring') or not task.get('Due_Date'):
+            continue
+
+        due_date = date.fromisoformat(task['Due_Date'])
+        base_urgency = task.get('Base_Urgency', 5)
+
+        # Grab creation date
+        creation_str = task.get('Creation_Date')
+        creation_date = date.fromisoformat(creation_str) if creation_str else today
+
+        # Determine if we should use the Ideal Date logic
+        use_ideal = False
+        if task.get('Ideal_Due_Date'):
+            ideal_date = date.fromisoformat(task['Ideal_Due_Date'])
+            if today <= ideal_date:
+                use_ideal = True
+
+        # Calculate proportional linear urgency
+        if use_ideal: # Creation to ideal date (target urgency: 7)
+            total_days = (ideal_date - creation_date).days
+            days_elapsed = (today - creation_date).days
+
+            if total_days <= 0:
+                new_urgency = 7
+            elif days_elapsed <= 0:
+                new_urgency = base_urgency
+            else:
+                progress = days_elapsed / total_days
+                new_urgency = base_urgency + ((7 - base_urgency) * progress)
+
+        else: # Creation to hard deadline (target urgency: 10)
+            total_days = (due_date - creation_date).days
+            days_elapsed = (today - creation_date).days
+
+            if today >= due_date or total_days <= 0:
+                new_urgency = 10
+            elif days_elapsed <= 0:
+                new_urgency = base_urgency
+            else:
+                progress = days_elapsed / total_days
+                new_urgency = base_urgency + ((10 - base_urgency) * progress)
+
+        # Round safely between 1 and 10
+        new_urgency = max(1, min(10, int(round(new_urgency))))
+
+        if task.get('Urgency') != new_urgency:
+            task['Urgency'] = new_urgency
+            modified = True
+
+    return modified
+
 # --- Define categories ---
 CATEGORIES = ['Morning Routine', 'High Priority', 'Medium Priority']
 
@@ -150,7 +209,10 @@ st.title("🎲 RPG To-Do List")
 # --- Initialization & State Management ---
 if 'tasks' not in st.session_state:
     st.session_state.tasks = load_tasks()
-    if process_recurring_tasks(st.session_state.tasks):
+    needs_save_recurring = process_recurring_tasks(st.session_state.tasks)
+    needs_save_deadlines = process_deadline_tasks(st.session_state.tasks)
+
+    if needs_save_recurring or needs_save_deadlines:
         save_tasks(st.session_state.tasks)
 
 if 'active_tab_memory' not in st.session_state:
@@ -173,6 +235,14 @@ battery = st.slider("Today's Battery (%)", 1, 100, 100)
 # Toggle for recurring logic
 is_recurring = st.checkbox('Is this a recurring task?')
 
+# Deadline UI
+has_deadline = st.checkbox("📅 Set a Deadline?")
+due_date_str = None
+ideal_date_str = None
+
+if has_deadline:
+    has_ideal = st.checkbox("Set an 'Ideal' early deadline?")
+
 with st.form("new_task_form", clear_on_submit=True):
     st.write("### Add a New Task")
     task_name = st.text_input("Task")
@@ -187,7 +257,17 @@ with st.form("new_task_form", clear_on_submit=True):
     with col1:
         difficulty = st.slider("Difficulty", 1, 10, 5)
     with col2:
-        urgency = st.slider('Urgency', 1, 10, 5)
+        urgency = st.slider('Base Urgency', 1, 10, 5)
+
+    if has_deadline:
+        col_ideal, col_due = st.columns(2)
+        with col_due:
+            due_date = st.date_input("Hard Deadline")
+            due_date_str = due_date.isoformat()
+        with col_ideal:
+            if has_ideal:
+                ideal_date = st.date_input("Ideal Deadline")
+                ideal_date_str = ideal_date.isoformat()
 
     day_inputs = {}
 
@@ -237,10 +317,15 @@ with st.form("new_task_form", clear_on_submit=True):
         new_task = {
             "ID": str(uuid.uuid4()), # Unique identifier
             "Done": False, # to become checkbox
+            "Partial_Done": False,
             "Category": category,
             "Task": task_name,
             "Difficulty": difficulty,
             "Urgency": urgency,
+            "Base_Urgency": urgency,
+            "Due_Date": due_date_str,
+            "Ideal_Due_Date": ideal_date_str,
+            "Creation_Date": datetime.now(timezone).strftime('%Y-%m-%d'),
             "Target": target,
             "Roll": adjusted_roll,
             "Status": status,
@@ -290,7 +375,7 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
         # (Anything NOT in this list, like 'ID' or '_Sort_Key', will be automatically hidden!)
         admin_column_order = [
             "Task", "Category", "Is_Work", "Status", "Done", "Partial_Done",
-            "Difficulty", "Urgency", "Target", "Roll",
+            "Difficulty", "Urgency", "Base_Urgency", "Due_Date", "Ideal_Due_Date", "Creation_Date", "Target", "Roll",
             "Is_Recurring", "Interval_Least", "Interval_Average", "Interval_Max", "Monday_Urgency", "Tuesday_Urgency", "Wednesday_Urgency",
             "Thursday_Urgency", "Friday_Urgency", "Saturday_Urgency", "Sunday_Urgency", "Last_Completed_Date"
         ]
@@ -334,6 +419,21 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
 # 4. Display and Filter the Tables
 # Only attempt to display tables if there are tasks in the list
 if st.session_state.tasks:
+    # Safely initialize missing keys for all tasks
+    for task in st.session_state.tasks:
+         if "Partial_Done" not in task or pd.isna(task.get('Partial_Done')):
+             task['Partial_Done'] = False
+         if "Is_Work" not in task or pd.isna(task.get('Is_Work')):
+            task['Is_Work'] = False
+         if "Base_Urgency" not in task:
+             task['Base_Urgency'] = task.get('Urgency', 5)
+         if "Due_Date" not in task:
+             task['Due_Date'] = None
+         if "Ideal_Due_Date" not in task:
+             task['Ideal_Due_Date'] = None
+         if "Creation_Date" not in task:
+             task['Creation_Date'] = datetime.now(timezone).strftime('%Y-%m-%d')
+
     # Convert master list to a Pandas DataFrame for easy filtering
     df = pd.DataFrame(st.session_state.tasks)
 
