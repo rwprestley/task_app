@@ -6,31 +6,46 @@ import requests
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 import math
+import json
 
 # --- Cloud Database Setup ---
-BIN_ID = st.secrets["JSONBIN_ID"]
-API_KEY = st.secrets["JSONBIN_KEY"]
-URL = f"https://api.jsonbin.io/v3/b/{BIN_ID}"
+GIST_ID = st.secrets["GIST_ID"]
+GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+GIST_URL = f"https://api.github.com/gists/{GIST_ID}"
 HEADERS = {
-    "X-Master-Key": API_KEY,
-    "Content-Type": "application/json"
+    "Authorization": f"token {GITHUB_TOKEN}",
+    "Accept": "application/vnd.github.v3+json"
 }
+FILENAME = "quests.json"
 timezone = ZoneInfo('US/Mountain')
 
 def load_tasks():
-    """Fetches your task list from the cloud."""
+    """Fetches your task list from private Github Gist."""
     try:
-        response = requests.get(URL, headers=HEADERS)
-        # JSONBin nests your data inside a 'record' key
-        return response.json().get("record", [])
+        response = requests.get(GIST_URL, headers=HEADERS)
+        response.raise_for_status()
+        gist_data = response.json()
+        content = gist_data['files'][FILENAME]['content'] # parse back into Python list
+        return json.loads(content)
     except Exception as e:
-        st.error("Failed to load cloud tasks. Starting fresh.")
+        st.error("Failed to load cloud tasks. Error: {e}")
+        if 'response' in locals():
+            st.error(f"API details: {response.text}")
         return []
 
 def save_tasks(tasks_list):
-    """Pushes your updated task list back to the cloud."""
+    """Pushes your updated task list back to Github Gist."""
     try:
-        response = requests.put(URL, json=tasks_list, headers=HEADERS)
+        # Github's API requries a specific nested JSON payload to update a file
+        payload = {
+            "files": {
+                FILENAME: {
+                    "content": json.dumps(tasks_list, indent=2)
+                }
+            }
+        }
+        # Note: use PATCH to update a Gist
+        response = requests.patch(GIST_URL, headers=HEADERS, json=payload)
         response.raise_for_status()
     except Exception as e:
         st.error(f"Failed to save tasks to the cloud! Error: {e}")
