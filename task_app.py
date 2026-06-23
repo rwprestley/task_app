@@ -297,7 +297,7 @@ with col_flags2:
 
 with col_flags3:
     # Importance flag
-    is_improtant = st.checkbox("Is this task important?",
+    is_important = st.checkbox("Is this task important?",
                                help='Important tasks automatically move to High Priority when Urgency > 7. ')
 
 with st.form("new_task_form", clear_on_submit=True):
