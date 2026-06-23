@@ -153,6 +153,23 @@ def process_recurring_tasks(tasks_list):
                         task['Done'] = False
                         modified = True
 
+            # Automatic category sorting
+            if task.get('Category') != 'Morning Routine': # Exclude morning routine tasks
+                # Grab importance flag and current urgency
+                is_important = task.get('Is_Important', False)
+                current_urgency = task.get('Urgency', 5)
+
+                # Check: is task highly urgent AND important?
+                if current_urgency > 7 and is_important:
+                    target_category = 'High Priority'
+                else:
+                    target_category = 'Medium Priority'
+
+                # Promote or demote the task if it's in the wrong bin
+                if task.get('Category') != target_category:
+                    task['Category'] = target_category
+                    modified = True
+
     return modified
 
 # --- Process one-off tasks ---
@@ -163,54 +180,71 @@ def process_deadline_tasks(tasks_list):
 
     for task in tasks_list:
         # Skip recurring tasks or tasks without due dates
-        if task.get('Is_Recurring') or not task.get('Due_Date'):
+        if task.get('Is_Recurring'):
             continue
 
-        due_date = date.fromisoformat(task['Due_Date'])
-        base_urgency = task.get('Base_Urgency', 5)
+        if task.get('Due_Date'): # Ratchet urgency (if task has a due date)
+            due_date = date.fromisoformat(task['Due_Date'])
+            base_urgency = task.get('Base_Urgency', 5)
 
-        # Grab creation date
-        creation_str = task.get('Creation_Date')
-        creation_date = date.fromisoformat(creation_str) if creation_str else today
+            # Grab creation date
+            creation_str = task.get('Creation_Date')
+            creation_date = date.fromisoformat(creation_str) if creation_str else today
 
-        # Determine if we should use the Ideal Date logic
-        use_ideal = False
-        if task.get('Ideal_Due_Date'):
-            ideal_date = date.fromisoformat(task['Ideal_Due_Date'])
-            if today <= ideal_date:
-                use_ideal = True
+            # Determine if we should use the Ideal Date logic
+            use_ideal = False
+            if task.get('Ideal_Due_Date'):
+                ideal_date = date.fromisoformat(task['Ideal_Due_Date'])
+                if today <= ideal_date:
+                    use_ideal = True
 
-        # Calculate proportional linear urgency
-        if use_ideal: # Creation to ideal date (target urgency: 7)
-            total_days = (ideal_date - creation_date).days
-            days_elapsed = (today - creation_date).days
+            # Calculate proportional linear urgency
+            if use_ideal: # Creation to ideal date (target urgency: 7)
+                total_days = (ideal_date - creation_date).days
+                days_elapsed = (today - creation_date).days
 
-            if total_days <= 0:
-                new_urgency = 7
-            elif days_elapsed <= 0:
-                new_urgency = base_urgency
+                if total_days <= 0:
+                    new_urgency = 7
+                elif days_elapsed <= 0:
+                    new_urgency = base_urgency
+                else:
+                    progress = days_elapsed / total_days
+                    new_urgency = base_urgency + ((7 - base_urgency) * progress)
+
+            else: # Creation to hard deadline (target urgency: 10)
+                total_days = (due_date - creation_date).days
+                days_elapsed = (today - creation_date).days
+
+                if today >= due_date or total_days <= 0:
+                    new_urgency = 10
+                elif days_elapsed <= 0:
+                    new_urgency = base_urgency
+                else:
+                    progress = days_elapsed / total_days
+                    new_urgency = base_urgency + ((10 - base_urgency) * progress)
+
+            # Round safely between 1 and 10
+            new_urgency = max(1, min(10, int(round(new_urgency))))
+
+            if task.get('Urgency') != new_urgency:
+                task['Urgency'] = new_urgency
+                modified = True
+
+        # Automatic category sorting
+        if task.get('Category') != 'Morning Routine': # Don't auto-sort morning routine one-off tasks
+            current_urgency = task.get('Urgency', 5)
+            is_important = task.get('Is_Important', False)
+
+            # Check: both highly urgent AND important?
+            if current_urgency > 7 and is_important:
+                target_category = 'High Priority'
             else:
-                progress = days_elapsed / total_days
-                new_urgency = base_urgency + ((7 - base_urgency) * progress)
+                target_category = 'Medium Priority'
 
-        else: # Creation to hard deadline (target urgency: 10)
-            total_days = (due_date - creation_date).days
-            days_elapsed = (today - creation_date).days
-
-            if today >= due_date or total_days <= 0:
-                new_urgency = 10
-            elif days_elapsed <= 0:
-                new_urgency = base_urgency
-            else:
-                progress = days_elapsed / total_days
-                new_urgency = base_urgency + ((10 - base_urgency) * progress)
-
-        # Round safely between 1 and 10
-        new_urgency = max(1, min(10, int(round(new_urgency))))
-
-        if task.get('Urgency') != new_urgency:
-            task['Urgency'] = new_urgency
-            modified = True
+            # Promote or demote the task if it's in the wrong bin
+            if task.get('Category') != target_category:
+                task['Category'] = target_category
+                modified = True
 
     return modified
 
@@ -247,16 +281,24 @@ weekend_mode = st.toggle("🌴 Weekend Mode")
 battery = st.slider("Today's Battery (%)", 1, 100, 100)
 
 # 3. Task Input Form
-# Toggle for recurring logic
-is_recurring = st.checkbox('Is this a recurring task?')
+col_flags1, col_flags2, col_flags3 = st.columns(3)
+with col_flags1:
+    # Toggle for recurring logic
+    is_recurring = st.checkbox('Is this a recurring task?')
 
-# Deadline UI
-has_deadline = st.checkbox("📅 Set a Deadline?")
-due_date_str = None
-ideal_date_str = None
+with col_flags2:
+    # Deadline UI
+    has_deadline = st.checkbox("📅 Set a Deadline?")
+    due_date_str = None
+    ideal_date_str = None
 
-if has_deadline:
-    has_ideal = st.checkbox("Set an 'Ideal' early deadline?")
+    if has_deadline:
+        has_ideal = st.checkbox("Set an 'Ideal' early deadline?")
+
+with col_flags3:
+    # Importance flag
+    is_improtant = st.checkbox("Is this task important?",
+                               help='Important tasks automatically move to High Priority when Urgency > 7. ')
 
 with st.form("new_task_form", clear_on_submit=True):
     st.write("### Add a New Task")
@@ -350,7 +392,8 @@ with st.form("new_task_form", clear_on_submit=True):
             "Interval_Average": interval_average,
             "Interval_Max": interval_max,
             "Last_Completed_Date": None,
-            "Is_Work": is_work
+            "Is_Work": is_work,
+            "Is_Important": is_important
         }
 
         # Inject Monday-Sunday overrides into dictionary
@@ -389,7 +432,7 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
         # Define the exact order of columns left-to-right.
         # (Anything NOT in this list, like 'ID' or '_Sort_Key', will be automatically hidden!)
         admin_column_order = [
-            "Task", "Category", "Is_Work", "Status", "Done", "Partial_Done",
+            "Task", "Category", "Is_Work", "Is_Important", "Status", "Done", "Partial_Done",
             "Difficulty", "Urgency", "Base_Urgency", "Due_Date", "Ideal_Due_Date", "Creation_Date", "Target", "Roll",
             "Is_Recurring", "Interval_Least", "Interval_Average", "Interval_Max", "Monday_Urgency", "Tuesday_Urgency", "Wednesday_Urgency",
             "Thursday_Urgency", "Friday_Urgency", "Saturday_Urgency", "Sunday_Urgency", "Last_Completed_Date"
@@ -446,6 +489,8 @@ if st.session_state.tasks:
              task['Due_Date'] = None
          if "Ideal_Due_Date" not in task:
              task['Ideal_Due_Date'] = None
+         if 'Is_Important' not in task or pd.isna(task.get('Is_Important')):
+             task['Is_Important'] = False
          if "Creation_Date" not in task:
              task['Creation_Date'] = datetime.now(timezone).strftime('%Y-%m-%d')
 
@@ -461,6 +506,7 @@ if st.session_state.tasks:
         # Global reroll button
         if st.button('🔄 Reroll ALL Quests', key='reroll_all'):
             process_recurring_tasks(st.session_state.tasks)
+            process_deadline_tasks(st.session_state.tasks)
             for task in st.session_state.tasks:
                 if task['Status'] in ['Active', 'Skipped', 'Partial']:
                     task['Done'] = False
@@ -495,11 +541,20 @@ if st.session_state.tasks:
         with col_btn:
             # Category-specific reroll button
             if st.button('🔄 Reroll Quests', key=f'reroll_{current_category}'):
+                # Snapshot categories before they shift
+                original_cats = {t['ID']: t.get('Category') for t in st.session_state.tasks}
+
                 # Update dynamic urgencies BEFORE rerolling
                 process_recurring_tasks(st.session_state.tasks)
+                process_deadline_tasks(st.session_state.tasks)
 
                 for task in st.session_state.tasks:
-                    if task['Category'] == current_category and task['Status'] in ['Active', 'Skipped', 'Partial']:
+                    # Check if task belongs in this reroll sweep
+                    was_here = original_cats.get(task['ID']) == current_category
+                    is_here = task.get('Category') == current_category
+
+                    # Scoop up anything that started here, or just arrived here
+                    if (was_here or is_here) and task['Status'] in ['Active', 'Skipped', 'Partial']:
                         # Reset the checkmark and give a fresh sort key
                         task['Done'] = False
                         task['Partial_Done'] = False # reset the "partial" flag for a new roll
