@@ -183,6 +183,21 @@ def process_deadline_tasks(tasks_list):
         if task.get('Is_Recurring'):
             continue
 
+        # Check for start date - transition to dormant state
+        if task.get('Start_Date'):
+            start_date = date.fromisoformat(task['Start_Date'])
+            if today < start_date:
+                if task.get('Status') != 'Dormant':
+                    task['Status'] = 'Dormant'
+                    task['Urgency'] = 0
+                    modified = True
+                continue
+
+        # Wake the task up if its start date has arrived
+        if task.get('Status') == 'Dormant':
+            task['Status'] = 'Active'
+            modified = True
+
         if task.get('Due_Date'): # Ratchet urgency (if task has a due date)
             due_date = date.fromisoformat(task['Due_Date'])
             base_urgency = task.get('Base_Urgency', 5)
@@ -291,9 +306,11 @@ with col_flags2:
     has_deadline = st.checkbox("📅 Set a Deadline?")
     due_date_str = None
     ideal_date_str = None
+    start_date_str = None
 
     if has_deadline:
         has_ideal = st.checkbox("Set an 'Ideal' early deadline?")
+        has_start = st.checkbox("Set a start date?", help='Task will stay hidden until start date.')
 
 with col_flags3:
     # Importance flag
@@ -317,7 +334,7 @@ with st.form("new_task_form", clear_on_submit=True):
         urgency = st.slider('Base Urgency', 1, 10, 5)
 
     if has_deadline:
-        col_ideal, col_due = st.columns(2)
+        col_ideal, col_due, col_start = st.columns(3)
         with col_due:
             due_date = st.date_input("Hard Deadline")
             due_date_str = due_date.isoformat()
@@ -325,6 +342,10 @@ with st.form("new_task_form", clear_on_submit=True):
             if has_ideal:
                 ideal_date = st.date_input("Ideal Deadline")
                 ideal_date_str = ideal_date.isoformat()
+        with col_start:
+            if has_start:
+                start_date = st.date_input("Start Date")
+                start_date_str = start_date.isoformat()
 
     day_inputs = {}
 
@@ -382,6 +403,7 @@ with st.form("new_task_form", clear_on_submit=True):
             "Base_Urgency": urgency,
             "Due_Date": due_date_str,
             "Ideal_Due_Date": ideal_date_str,
+            "Start_Date": start_date_str,
             "Creation_Date": datetime.now(timezone).strftime('%Y-%m-%d'),
             "Target": target,
             "Roll": adjusted_roll,
@@ -412,7 +434,7 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
         # Add a dropdown to select how you want to sort the data
         sort_by = st.selectbox(
             "Sort Admin Table By:",
-            ["None (Default)", "Category", "Status", "Urgency", "Task Name"]
+            ["None (Default)", "Category", "Status", "Urgency", "Task Name", "Due_Date"]
         )
 
         # Convert the master list to a DataFrame
@@ -433,7 +455,7 @@ with st.expander("🛠️ Master Quest Editor (Edit or Delete Tasks)"):
         # (Anything NOT in this list, like 'ID' or '_Sort_Key', will be automatically hidden!)
         admin_column_order = [
             "Task", "Category", "Is_Work", "Is_Important", "Status", "Done", "Partial_Done",
-            "Difficulty", "Urgency", "Base_Urgency", "Due_Date", "Ideal_Due_Date", "Creation_Date", "Target", "Roll",
+            "Difficulty", "Urgency", "Base_Urgency", "Due_Date", "Ideal_Due_Date", "Start_Date", "Creation_Date", "Target", "Roll",
             "Is_Recurring", "Interval_Least", "Interval_Average", "Interval_Max", "Monday_Urgency", "Tuesday_Urgency", "Wednesday_Urgency",
             "Thursday_Urgency", "Friday_Urgency", "Saturday_Urgency", "Sunday_Urgency", "Last_Completed_Date"
         ]
@@ -489,6 +511,8 @@ if st.session_state.tasks:
              task['Due_Date'] = None
          if "Ideal_Due_Date" not in task:
              task['Ideal_Due_Date'] = None
+         if "Start_Date" not in task:
+             task["Start_Date"] = None
          if 'Is_Important' not in task or pd.isna(task.get('Is_Important')):
              task['Is_Important'] = False
          if "Creation_Date" not in task:
@@ -496,6 +520,37 @@ if st.session_state.tasks:
 
     # Convert master list to a Pandas DataFrame for easy filtering
     df = pd.DataFrame(st.session_state.tasks)
+
+    # Convert string dates to real datetime objects
+    if 'Due_Date' in df.columns:
+        df['Due_Date'] = pd.to_datetime(df['Due_Date']).dt.date
+    if 'Start_Date' in df.columns:
+        df['Start_Date'] = pd.to_datetime(df['Start_Date']).dt.date
+
+    # Calculate synthetic due dates for recurring tasks
+    if 'Is_Recurring' in df.columns:
+        # Create safe temporary dates for the math
+        df['Temp_Last'] = pd.to_datetime(df.get('Last_Completed_Date')).dt.date
+        df['Temp_Creation'] = pd.to_datetime(df.get('Creation_Date', datetime.now(timezone).date())).dt.date
+
+        def calculate_recurring_due(row):
+            # Only apply this math to recurring tasks
+            if row.get('Is_Recurring'):
+                # If it's never been done, base it on when the task was created
+                base_date = row['Temp_Last'] if pd.notna(row['Temp_Last']) else row['Temp_Creation']
+                interval = row.get('Interval_Average', 1)
+
+                if pd.notna(base_date) and pd.notna(interval):
+                    return base_date + timedelta(days=int(interval))
+
+            # For non-recurring tasks, just return their normal due date
+            return row.get('Due_Date')
+
+        # Apply the math and overwrite the due_date column purely for the UI
+        df['Due_Date'] = df.apply(calculate_recurring_due, axis=1)
+
+        # Clean up the temporary columns
+        df = df.drop(columns=['Temp_Last', 'Temp_Creation'])
 
     st.write("---")
 
@@ -605,6 +660,7 @@ if st.session_state.tasks:
                 column_config={
                     "Done": st.column_config.CheckboxColumn("Done?", default=False, width='small'),
                     "Partial_Done": st.column_config.CheckboxColumn("Done for today?", default=False, width='small'),
+                    "Due_Date": st.column_config.DateColumn("Due Date", format="MMM DD, YYYY"),
                     "Hit %": st.column_config.ProgressColumn(
                         "Hit Chance",
                         help="Probability of beating the Target DC at your current battery level.",
@@ -614,9 +670,9 @@ if st.session_state.tasks:
                         width='medium'
                     )
                 },
-                column_order=['Done', 'Partial_Done', 'Task', 'Difficulty', 'Hit %'], #only show these columns
+                column_order=['Done', 'Partial_Done', 'Task', 'Due_Date', 'Difficulty', 'Hit %'], #only show these columns
                 # Disable editing for everything except the "Done" checkbox
-                disabled=['Task', 'Difficulty', 'Hit %'],
+                disabled=['Task', 'Due_Date', 'Difficulty', 'Hit %'],
                 hide_index=True,
                 key=f'active_{"weekend" if weekend_mode else current_category}' # Keys must be unique!
             )
@@ -816,6 +872,45 @@ if st.session_state.tasks:
                 st.rerun()
         else:
             st.info("Your backlog is clear.")
+
+
+        # --- UPCOMING & DORMANT TASKS --- #
+        st.write("---")
+        with st.expander("💤 Upcoming & Dormant Quests"):
+            # Filter to only show Dormant tasks for the current view
+            dormant_df = cat_df[cat_df['Status'] == 'Dormant'].copy().reset_index(drop=True)
+
+            if not dormant_df.empty:
+                # Helper function to explain *why* the task is sleeping
+                def get_dormant_reason(row):
+                    today_date = datetime.now(timezone).date()
+
+                    # Safely check for future start dates using pd.notna
+                    if pd.notna(row.get('Start_Date')) and row['Start_Date'] > today_date:
+                        return f"Starts {row['Start_Date'].strftime('%b %d')}"
+
+                    # Handle recurring "cooldowns", using synthetic due date
+                    elif row.get('Is_Recurring'):
+                        if pd.notna(row.get('Due_Date')):
+                            return "On Cooldown"
+
+                    return "Sleeping"
+
+                # Apply the helder function to create a new readable column
+                dormant_df['Status / Reason'] = dormant_df.apply(get_dormant_reason, axis=1)
+
+                # Using dataframe instead of data_editor since these shouldn't be edited
+                st.dataframe(
+                    dormant_df,
+                    column_config={
+                        'Due_Date': st.column_config.DateColumn("Due Date", format="MMM DD, YYYY")
+                    },
+                    column_order=['Task', 'Status / Reason', 'Due_Date', 'Difficulty', 'Base_Urgency'],
+                    hide_index=True,
+                    use_container_width=True
+                )
+            else:
+                st.info("No tasks are currently sleeping here. ")
 else:
     st.write("---")
     st.info("Fill out the form above to start building your Quest Board!")
