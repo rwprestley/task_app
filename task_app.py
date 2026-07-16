@@ -202,8 +202,8 @@ def process_deadline_tasks(tasks_list):
             due_date = date.fromisoformat(task['Due_Date'])
             base_urgency = task.get('Base_Urgency', 5)
 
-            # Grab creation date
-            creation_str = task.get('Creation_Date')
+            # Grab start date, fall back to creation date otherwise
+            creation_str = task.get('Start_Date') or task.get('Creation_Date')
             creation_date = date.fromisoformat(creation_str) if creation_str else today
 
             # Determine if we should use the Ideal Date logic
@@ -214,7 +214,7 @@ def process_deadline_tasks(tasks_list):
                     use_ideal = True
 
             # Calculate proportional linear urgency
-            if use_ideal: # Creation to ideal date (target urgency: 7)
+            if use_ideal: # Creation / start to ideal date (target urgency: 7)
                 total_days = (ideal_date - creation_date).days
                 days_elapsed = (today - creation_date).days
 
@@ -226,7 +226,7 @@ def process_deadline_tasks(tasks_list):
                     progress = days_elapsed / total_days
                     new_urgency = base_urgency + ((7 - base_urgency) * progress)
 
-            else: # Creation to hard deadline (target urgency: 10)
+            else: # Creation / start to hard deadline (target urgency: 10)
                 total_days = (due_date - creation_date).days
                 days_elapsed = (today - creation_date).days
 
@@ -292,7 +292,12 @@ if "celebration" in st.session_state:
     del st.session_state["celebration"]
 
 # 2. Daily Battery Input and Weekend Mode Toggle
-weekend_mode = st.toggle("🌴 Weekend Mode")
+mode_flags1, mode_flags2 = st.columns(2)
+with mode_flags1:
+    weekend_mode = st.toggle("🌴 Weekend Mode")
+with mode_flags2:
+    wfh_mode = st.toggle("🏠 Work from Home Mode")
+
 battery = st.slider("Today's Battery (%)", 1, 100, 100)
 
 # 3. Task Input Form
@@ -578,6 +583,31 @@ if st.session_state.tasks:
 
         # Skip category filtering and use the whole dataframe
         cat_df = df[df['Is_Work'] == False]
+
+    if wfh_mode:
+        st.write('###  Work from Home Mode (All Quests)')
+        current_category = '🏠 Work from Home'
+
+        # Global reroll button
+        if st.button('🔄 Reroll ALL Quests', key='reroll_all'):
+            process_recurring_tasks(st.session_state.tasks)
+            process_deadline_tasks(st.session_state.tasks)
+            for task in st.session_state.tasks:
+                if task['Status'] in ['Active', 'Skipped', 'Partial']:
+                    task['Done'] = False
+                    task['Partial_Done'] = False
+                    task['_Sort_Key'] = random.random()
+                    success, base_roll, adjusted_roll, target = roll_for_task(
+                        task['Difficulty'], task['Urgency'], battery
+                    )
+                    task['Roll'] = adjusted_roll
+                    task['Target'] = target
+                    task['Status'] = 'Active' if success else 'Skipped'
+            save_tasks(st.session_state.tasks)
+            st.rerun()
+
+        # Skip category filtering and use the whole dataframe
+        cat_df = df
 
     else: # Normal mode
         # Category selector - remembers selection across reruns
