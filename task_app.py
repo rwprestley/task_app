@@ -294,7 +294,7 @@ if "celebration" in st.session_state:
 # 2. Daily Battery Input and Weekend Mode Toggle
 mode_flags1, mode_flags2 = st.columns(2)
 with mode_flags1:
-    weekend_mode = st.toggle("🌴 Weekend Mode")
+    hide_work = st.toggle("🌴 Hide Work Tasks")
 with mode_flags2:
     wfh_mode = st.toggle("🏠 Work from Home Mode")
 
@@ -330,7 +330,7 @@ with st.form("new_task_form", clear_on_submit=True):
     category = st.selectbox("Category", CATEGORIES)
 
     # Add Work flag checkbox
-    is_work = st.checkbox("Is this a work task?",  help='Work tasks are automatically hidden in Weekend Mode.')
+    is_work = st.checkbox("Is this a work task?",  help="Work tasks are automatically hidden when Hide Work Tasks is on.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -559,30 +559,10 @@ if st.session_state.tasks:
 
     st.write("---")
 
-    if weekend_mode:
-        st.write('### 🌴 Weekend Mode (All Quests)')
-        current_category = 'Weekend'
-
-        # Global reroll button
-        if st.button('🔄 Reroll ALL Quests', key='reroll_all'):
-            process_recurring_tasks(st.session_state.tasks)
-            process_deadline_tasks(st.session_state.tasks)
-            for task in st.session_state.tasks:
-                if task['Status'] in ['Active', 'Skipped', 'Partial']:
-                    task['Done'] = False
-                    task['Partial_Done'] = False
-                    task['_Sort_Key'] = random.random()
-                    success, base_roll, adjusted_roll, target = roll_for_task(
-                        task['Difficulty'], task['Urgency'], battery
-                    )
-                    task['Roll'] = adjusted_roll
-                    task['Target'] = target
-                    task['Status'] = 'Active' if success else 'Skipped'
-            save_tasks(st.session_state.tasks)
-            st.rerun()
-
-        # Skip category filtering and use the whole dataframe
+    if hide_work:
         cat_df = df[df['Is_Work'] == False]
+    else:
+        cat_df = df
 
     if wfh_mode:
         st.write('###  Work from Home Mode (All Quests)')
@@ -605,9 +585,6 @@ if st.session_state.tasks:
                     task['Status'] = 'Active' if success else 'Skipped'
             save_tasks(st.session_state.tasks)
             st.rerun()
-
-        # Skip category filtering and use the whole dataframe
-        cat_df = df
 
     else: # Normal mode
         # Category selector - remembers selection across reruns
@@ -659,7 +636,7 @@ if st.session_state.tasks:
                 st.rerun() # Refresh the UI
 
         # Filter first by category
-        cat_df = df[df['Category'] == current_category]
+        cat_df = cat_df[cat_df['Category'] == current_category]
 
     if cat_df.empty:
         st.info(f"No quests in to display yet.")
@@ -704,7 +681,7 @@ if st.session_state.tasks:
                 # Disable editing for everything except the "Done" checkbox
                 disabled=['Task', 'Due_Date', 'Difficulty', 'Hit %'],
                 hide_index=True,
-                key=f'active_{"weekend" if weekend_mode else current_category}' # Keys must be unique!
+                key=f'active_{"wfh" if wfh_mode else current_category}' # Keys must be unique!
             )
 
             # Check for differences in the "Done" column
